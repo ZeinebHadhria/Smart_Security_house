@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Smart Security — ESP32-CAM Dashboard</title>
+  <meta name="description" content="Smart Access Control — live stream, motion alerts, access logs." />
+
+  <!-- Firebase (v8 used for simple CDN usage) -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --muted:rgba(255,255,255,0.66);
+      --accent:#0B63C6; --accent-2:#1DB954; --danger:#FF6B35;
+      color-scheme: dark;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#e6eef8;background:linear-gradient(180deg,#071022 0%, #07182a 60%);}
+    .wrap{max-width:1200px;margin:28px auto;padding:22px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:18px}
+    .brand{display:flex;gap:12px;align-items:center}
+    .logo{width:56px;height:56px;background:linear-gradient(135deg,var(--accent),#1A47B8);border-radius:12px;display:grid;place-items:center;box-shadow:0 8px 30px rgba(11,99,198,0.18)}
+    h1{font-size:20px;margin:0;font-weight:800}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+    .grid{display:grid;grid-template-columns: 1fr 380px;gap:22px;margin-top:22px}
+    @media (max-width:980px){.grid{grid-template-columns:1fr} .right-col{order:2}}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-radius:14px;padding:18px;box-shadow:0 8px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.02)}
+    .camera{height:420px;border-radius:12px;overflow:hidden;position:relative;background:var(--card);display:flex;align-items:center;justify-content:center}
+    .camera img{width:100%;height:100%;object-fit:cover;display:block}
+    .camera .overlay{position:absolute;left:16px;top:16px;background:linear-gradient(90deg,rgba(11,99,198,0.95),rgba(26,71,184,0.9));padding:8px 12px;border-radius:10px;color:white;font-weight:700;display:flex;gap:8px;align-items:center}
+    .status-dot{width:10px;height:10px;border-radius:50%;background:#0f0;box-shadow:0 0 8px #0f0}
+    .controls{display:flex;gap:12px;align-items:center;margin-top:14px}
+    .btn{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:10px 16px;border-radius:12px;display:inline-flex;gap:10px;align-items:center;border:1px solid rgba(255,255,255,0.04);cursor:pointer}
+    .btn.primary{background:linear-gradient(90deg,var(--accent),#1A47B8);color:white;box-shadow:0 10px 30px rgba(11,99,198,0.18)}
+    .btn.positive{background:linear-gradient(90deg,var(--accent-2),#13a94a);color:white}
+    .btn.danger{background:linear-gradient(90deg,var(--danger),#ff8a63);color:white}
+    .btn.ghost{background:transparent;border:1px dashed rgba(255,255,255,0.06)}
+    .card.small{padding:12px}
+    .stats{display:flex;flex-direction:column;gap:12px}
+    .stat{display:flex;justify-content:space-between;align-items:center}
+    .stat .meta{color:var(--muted);font-size:13px}
+    .big{font-size:24px;font-weight:800}
+    .activity{max-height:300px;overflow:auto;margin-top:12px}
+    .activity .item{display:flex;gap:12px;align-items:center;padding:10px;border-radius:10px}
+    .item .dot{width:44px;height:44px;border-radius:10px;display:grid;place-items:center}
+    .item .text{flex:1}
+    .item .time{color:var(--muted);font-size:12px}
+    .empty{color:var(--muted);text-align:center;padding:28px}
+    .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .gallery img{width:100%;height:110px;object-fit:cover;border-radius:8px}
+    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,0.6);z-index:60}
+    .modal.open{display:flex}
+    .modal .modal-card{width:920px;max-width:94%;max-height:86%;overflow:auto;background:#071328;padding:18px;border-radius:12px}
+    footer{margin-top:18px;text-align:center;color:var(--muted);font-size:13px}
+    .row{display:flex;gap:12px;align-items:center}
+    .spacer{flex:1}
+    .pulse{animation:pulse 2s infinite}
+    @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.02)}100%{transform:scale(1)}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="logo">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L3 5v6c0 5.25 3.84 10.74 9 11 5.16-.26 9-5.75 9-11V5l-9-3z" fill="white" opacity="0.92"/></svg>
+        </div>
+        <div>
+          <h1>Smart Security</h1>
+          <p class="lead">ESP32-CAM — Live monitoring & access control</p>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="text-align:right;margin-right:8px">
+          <div style="font-weight:800">Yazid</div>
+          <div style="font-size:12px;color:var(--muted)">Project Owner</div>
+        </div>
+        <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#1A47B8);display:grid;place-items:center;color:white;font-weight:800">Y</div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="left-col">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div><strong>Live Camera</strong><div style="font-size:13px;color:var(--muted)">Stream from ESP32-CAM or Firebase snapshot</div></div>
+            <div class="overlay" style="position:static;transform:none">
+              <div class="status-dot" id="statusDot"></div>
+              <div id="statusText" style="font-size:13px;opacity:0.95;margin-left:6px">Checking...</div>
+            </div>
+          </div>
+
+          <div class="camera" id="cameraWrap">
+            <!-- The dashboard will show either the MJPEG stream or the last Firebase snapshot -->
+            <img id="streamImg" src="" alt="Live stream" onerror="imgError(this)"/>
+            <div style="position:absolute;left:16px;bottom:16px;color:white;font-size:13px;background:rgba(0,0,0,0.32);padding:8px 12px;border-radius:10px">ESP32-CAM · <span id="ipLabel">Not set</span></div>
+          </div>
+
+          <div class="controls">
+            <button class="btn primary" id="btnFull">Open full view</button>
+            <button class="btn" id="btnCapture">📸 Capture</button>
+            <button class="btn ghost" id="btnGallery">🖼️ Gallery</button>
+            <div class="spacer"></div>
+            <button class="btn positive" id="btnOpen">Open Door</button>
+            <button class="btn danger" id="btnClose">Close Door</button>
+          </div>
+        </div>
+
+        <div style="height:18px"></div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center"><strong>How it works</strong><div style="color:var(--muted);font-size:13px">ESP32-CAM → Firebase Realtime DB → Dashboard</div></div>
+          <div style="margin-top:12px;color:var(--muted);font-size:14px;line-height:1.5">
+            Your ESP32 encodes camera snapshots as base64 into <code>/last_image</code>.
+            The dashboard listens for updates and displays the latest image. Door control writes <code>/door_action</code> ("open"/"close") — your ESP32 reads it and acts.
+          </div>
+        </div>
+
+      </section>
+
+      <aside class="right-col">
+        <div class="card small">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="color:var(--muted);font-size:13px">Today's Activity</div>
+              <div class="big" id="activityCount">0 events</div>
+            </div>
+            <div style="text-align:right">
+              <div style="color:var(--muted);font-size:12px">Active Users</div>
+              <div style="font-weight:800;font-size:18px">3</div>
+            </div>
+          </div>
+
+          <div style="height:12px"></div>
+          <div class="stats">
+            <div class="stat"><div class="meta">Motion Alerts</div><div class="big" id="motionCount">0</div></div>
+            <div class="stat"><div class="meta">Face Recognized</div><div class="big" id="faceCount">0</div></div>
+            <div class="stat"><div class="meta">Unauthorized</div><div class="big" id="unauthCount">0</div></div>
+          </div>
+        </div>
+
+        <div style="height:18px"></div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center"><strong>Activity Feed</strong><button class="btn ghost" id="clearFeed">Clear</button></div>
+          <div class="activity" id="activityList">
+            <div class="empty">No activity yet — live events will appear here.</div>
+          </div>
+        </div>
+
+        <div style="height:18px"></div>
+
+        <div class="card small">
+          <strong>Quick Controls</strong>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" id="btnRestart">Restart Camera</button>
+            <button class="btn" id="btnSettings">Settings</button>
+            <button class="btn" id="btnLogin">Admin</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Gallery Modal -->
+  <div class="modal" id="modalGallery">
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <strong>Gallery</strong>
+        <button class="btn ghost" id="closeGallery">Close</button>
+      </div>
+      <div class="gallery" id="galleryGrid">
+        <!-- images injected here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Full view modal -->
+  <div class="modal" id="modalFull">
+    <div class="modal-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:linear-gradient(90deg,var(--accent),#1A47B8)">
+        <div style="color:white;font-weight:800">Live View</div>
+        <div><button class="btn ghost" id="closeFull">Close</button></div>
+      </div>
+      <div style="background:black;min-height:60vh;display:grid;place-items:center">
+        <img id="fullImg" src="" style="width:100%;height:100%;object-fit:contain"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Login (demo) -->
+  <div class="modal" id="modalLogin">
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><strong>Admin Login</strong><button class="btn ghost" id="closeLogin">Cancel</button></div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <input id="adminUser" placeholder="Username" style="padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:white" />
+        <input id="adminPass" type="password" placeholder="Password" style="padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:white" />
+        <button class="btn primary" id="doLogin">Login</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ====== CONFIG ======
+    const ESP32_IP = 'ESP32_IP_ADDRESS'; // <-- replace with your ESP32 IP (e.g. 192.168.1.50) or leave placeholder if using Firebase images only
+    const STREAM_PATH = `http://${ESP32_IP}:81/stream`;
+    const SNAPSHOT_PATH = `http://${ESP32_IP}/capture`; // endpoint that returns single jpg (if your ES32 supports /capture)
+    // Optional server-proxy endpoints (same-origin) for CORS: /api/capture, /api/door
+
+    // ====== FIREBASE CONFIG - REPLACE WITH YOUR VALUES ======
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "your-project.firebaseapp.com",
+      databaseURL: "https://your-project.firebaseio.com",
+      projectId: "your-project",
+      storageBucket: "your-project.appspot.com",
+      messagingSenderId: "SENDER_ID",
+      appId: "APP_ID"
+    };
+
+    // Init Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // Local memory
+    const gallery = [];
+    const activities = [];
+
+    // Elements
+    const streamImg = document.getElementById('streamImg');
+    const fullImg = document.getElementById('fullImg');
+    const ipLabel = document.getElementById('ipLabel');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const activityList = document.getElementById('activityList');
+    const galleryGrid = document.getElementById('galleryGrid');
+    const activityCount = document.getElementById('activityCount');
+    const motionCountEl = document.getElementById('motionCount');
+    const faceCountEl = document.getElementById('faceCount');
+    const unauthCountEl = document.getElementById('unauthCount');
+
+    // Init UI & events
+    function init() {
+      ipLabel.textContent = ESP32_IP === 'ESP32_IP_ADDRESS' ? 'Set ESP32_IP in code' : ESP32_IP;
+      // prefer MJPEG stream, fallback to snapshot polling
+      if(ESP32_IP !== 'ESP32_IP_ADDRESS') {
+        streamImg.src = STREAM_PATH;
+        streamImg.alt = 'Live stream from ' + ESP32_IP;
+      } else {
+        // show placeholder until firebase image arrives
+        streamImg.src = '';
+      }
+
+      pingCamera();
+
+      document.getElementById('btnCapture').addEventListener('click', captureImage);
+      document.getElementById('btnGallery').addEventListener('click', openGallery);
+      document.getElementById('closeGallery').addEventListener('click', ()=>toggleModal('modalGallery',false));
+      document.getElementById('btnFull').addEventListener('click', openFullView);
+      document.getElementById('closeFull').addEventListener('click', ()=>toggleModal('modalFull',false));
+      document.getElementById('btnOpen').addEventListener('click', ()=>setDoorAction('open'));
+      document.getElementById('btnClose').addEventListener('click', ()=>setDoorAction('close'));
+      document.getElementById('btnLogin').addEventListener('click', ()=>toggleModal('modalLogin',true));
+      document.getElementById('closeLogin').addEventListener('click', ()=>toggleModal('modalLogin',false));
+      document.getElementById('doLogin').addEventListener('click', doLogin);
+      document.getElementById('clearFeed').addEventListener('click', ()=>{ activities.length=0; renderActivities(); updateCounts(); });
+      document.getElementById('btnSettings').addEventListener('click', openSettingsPrompt);
+      document.getElementById('btnRestart').addEventListener('click', ()=>{ addActivity('Camera restart requested', true); alert('Restart must be implemented on device or server'); });
+
+      // Firebase listeners
+      setupFirebaseListeners();
+
+      // initial demo activity
+      addActivity('Dashboard loaded', true);
+    }
+
+    // ========== Firebase listeners ==========
+    function setupFirebaseListeners() {
+      // last_image: base64 JPEG string
+      db.ref('last_image').on('value', snapshot => {
+        const base64 = snapshot.val();
+        if(base64) {
+          const dataUrl = 'data:image/jpeg;base64,' + base64;
+          // Use Firebase snapshot to update main image (overrides stream for visual)
+          streamImg.src = dataUrl;
+          statusDot.style.background = '#0f0';
+          statusText.textContent = 'Online (via Firebase)';
+          addActivity('New snapshot from device', true);
+        }
+      });
+
+      // optional: activity entries under /activity (push from device)
+      db.ref('activity').limitToLast(50).on('child_added', snap => {
+        const obj = snap.val();
+        if(obj && obj.message) {
+          addActivity(obj.message, !!obj.ok);
+        }
+      });
+
+      // optional counters (you can write these from ESP32 or server)
+      db.ref('counters').on('value', snap => {
+        const c = snap.val() || {};
+        motionCountEl.textContent = c.motion || 0;
+        faceCountEl.textContent = c.faces || 0;
+        unauthCountEl.textContent = c.unauthorized || 0;
+      });
+    }
+
+    // ========== Door action (write to /door_action) ==========
+    async function setDoorAction(action) {
+      try {
+        await db.ref('door_action').set(action);
+        addActivity(`Door ${action} (command sent to Firebase)`, true);
+        alert('Door command sent: ' + action);
+      } catch (e) {
+        addActivity('Failed to send door command', false);
+        alert('Failed to send door command: ' + e.message);
+      }
+    }
+
+    // ========== Capture image (try ESP32, fallback to proxy) ==========
+    async function captureImage() {
+      addActivity('Capture requested', true);
+      // 1) Try to get snapshot directly from ESP32 (fast) - may fail due to CORS
+      if(ESP32_IP !== 'ESP32_IP_ADDRESS') {
+        try {
+          const r = await fetch(SNAPSHOT_PATH + '?t=' + Date.now());
+          if(r.ok) {
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            gallery.unshift({url,ts:Date.now()});
+            renderGallery();
+            openGallery();
+            addActivity('Snapshot captured from ESP32', true);
+
+            // Optionally: upload snapshot to Firebase for device-independent viewing
+            try {
+              const arr = await blobToBase64(blob);
+              // write to /last_image so dashboard and device sync
+              await db.ref('last_image').set(arr.split(',')[1]); // remove data: prefix
+            } catch(e){}
+            return;
+          }
+        } catch(e) {
+          // continue to fallback
+        }
+      }
+
+      // 2) fallback: call server proxy endpoint /api/capture (same-origin) that fetches from ESP32
+      try {
+        const r2 = await fetch('/api/capture'); // optional: implement on your server (PHP/Node)
+        if(r2.ok) {
+          const blob = await r2.blob();
+          const url = URL.createObjectURL(blob);
+          gallery.unshift({url,ts:Date.now()});
+          renderGallery();
+          openGallery();
+          addActivity('Snapshot captured via server proxy', true);
+          return;
+        }
+      } catch(e){}
+
+      // 3) final fallback: ask user to check CORS / ESP32 IP
+      addActivity('Capture failed', false);
+      alert('Capture failed. Check ESP32 IP, CORS or implement a server-side proxy (/api/capture).');
+    }
+
+    // helper: convert blob to dataURL (base64)
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    // ========== Camera ping & fallback to snapshot polling ==========
+    function imgError(img) {
+      // if stream fails, try snapshot polling every 1.5s
+      statusDot.style.background = '#f00';
+      statusText.textContent = 'Stream unavailable — trying snapshot';
+      if (!window._snapshotPolling) {
+        window._snapshotPolling = setInterval(async () => {
+          try {
+            const r = await fetch(SNAPSHOT_PATH + '?t=' + Date.now());
+            if (r.ok) {
+              const blob = await r.blob();
+              const url = URL.createObjectURL(blob);
+              img.src = url;
+              statusDot.style.background = '#0f0';
+              statusText.textContent = 'Snapshot (polled)';
+            }
+          } catch (e) {
+            // ignore
+          }
+        }, 1500);
+      }
+    }
+
+    async function pingCamera() {
+      if(ESP32_IP === 'ESP32_IP_ADDRESS') {
+        // no IP provided -> rely on Firebase snapshots
+        statusDot.style.background = '#ffb000';
+        statusText.textContent = 'Using Firebase snapshots';
+        return;
+      }
+      try {
+        // try simple fetch (no-cors) to check reachability; may still fail due to CORS
+        await fetch(`http://${ESP32_IP}/`, { mode: 'no-cors' });
+        statusDot.style.background = '#0f0';
+        statusText.textContent = 'Online';
+      } catch (e) {
+        statusDot.style.background = '#f00';
+        statusText.textContent = 'Offline or CORS';
+      }
+    }
+
+    // ========== Activities & Gallery UI ==========
+    function addActivity(text, ok=true) {
+      const item = { text, ok, ts: Date.now() };
+      activities.unshift(item);
+      if (activities.length > 80) activities.pop();
+      renderActivities();
+      updateCounts();
+      // Optionally push to Firebase activity list:
+      try { db.ref('activity').push({ message: text, ok: !!ok, ts: Date.now() }); } catch(e){}
+    }
+
+    function renderActivities() {
+      activityList.innerHTML = '';
+      if (activities.length === 0) {
+        activityList.innerHTML = '<div class="empty">No activity yet — live events will appear here.</div>';
+        return;
+      }
+      activities.forEach(a => {
+        const el = document.createElement('div');
+        el.className = 'item';
+        el.innerHTML = `
+          <div class="dot" style="background:${a.ok? 'linear-gradient(90deg,var(--accent-2),#13a94a)':'linear-gradient(90deg,#ff6b35,#ff8a63)'};width:44px;height:44px;border-radius:10px;display:grid;place-items:center;color:white;font-weight:700">${a.ok? 'OK':'!'}</div>
+          <div class="text"><div style="font-weight:700">${a.text}</div><div class="time">${new Date(a.ts).toLocaleString()}</div></div>
+        `;
+        activityList.appendChild(el);
+      });
+      activityCount.textContent = `${activities.length} events`;
+    }
+
+    function renderGallery() {
+      galleryGrid.innerHTML = '';
+      if (gallery.length === 0) { galleryGrid.innerHTML = '<div class="empty">No images yet</div>'; return; }
+      gallery.forEach(g => {
+        const img = document.createElement('img'); img.src = g.url; img.loading = 'lazy';
+        img.addEventListener('click', ()=>{ toggleModal('modalFull',true); fullImg.src = g.url; });
+        galleryGrid.appendChild(img);
+      });
+    }
+
+    function openGallery(){ toggleModal('modalGallery',true); renderGallery(); }
+    function openFullView(){ toggleModal('modalFull',true); fullImg.src = streamImg.src || ''; }
+    function toggleModal(id,open){ document.getElementById(id).classList.toggle('open', !!open); }
+    function updateCounts(){ activityCount.textContent = `${activities.length} events`; }
+
+    // ========== Admin login (demo) ==========
+    function doLogin(){
+      const u = document.getElementById('adminUser').value;
+      const p = document.getElementById('adminPass').value;
+      if(u==='admin' && p==='1234'){ toggleModal('modalLogin',false); addActivity('Admin logged in', true); alert('Demo login success') } else { addActivity('Admin login failed', false); alert('Invalid credentials (demo)') }
+    }
+
+    // ========== Settings prompt to change ESP32 IP (local edit recommended) ==========
+    function openSettingsPrompt(){
+      const ip = prompt('Enter ESP32 IP (current: '+ESP32_IP+'). Note: to persist, edit the file and set ESP32_IP constant.', ESP32_IP === 'ESP32_IP_ADDRESS' ? '' : ESP32_IP);
+      if(ip) { alert('To persist the IP, edit the ESP32_IP value in the file.'); }
+    }
+
+    // Init on load
+    init();
+
+  </script>
+</body>
+</html>
